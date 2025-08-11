@@ -1,0 +1,210 @@
+name: 'PromptProof Eval'
+description: 'Deterministic replay and policy checks for LLM outputs'
+author: 'PromptProof'
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  config:
+    description: 'Path to promptproof.yaml configuration file'
+    required: false
+    default: 'promptproof.yaml'
+  format:
+    description: 'Output format (console|html|junit|json)'
+    required: false
+    default: 'html'
+  mode:
+    description: 'Evaluation mode (fail|warn)'
+    required: false
+    default: ''
+  node-version:
+    description: 'Node.js version to use'
+    required: false
+    default: '20'
+
+outputs:
+  violations:
+    description: 'Number of violations found'
+    value: ${{ steps.eval.outputs.violations }}
+  passed:
+    description: 'Number of fixtures that passed'
+    value: ${{ steps.eval.outputs.passed }}
+  failed:
+    description: 'Number of fixtures that failed'
+    value: ${{ steps.eval.outputs.failed }}
+  report-path:
+    description: 'Path to the generated report'
+    value: ${{ steps.eval.outputs.report-path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Install PromptProof CLI
+      shell: bash
+      run: |
+        echo "::group::Installing PromptProof CLI"
+        npm install -g promptproof-cli@latest
+        echo "::endgroup::"
+
+    - name: Run PromptProof Evaluation
+      id: eval
+      shell: bash
+      run: |
+        echo "::group::Running PromptProof evaluation"
+        
+        # Prepare command
+        CMD="promptproof eval --config ${{ inputs.config }} --format ${{ inputs.format }} --out promptproof-report"
+        
+        # Add mode flag if specified
+        if [ "${{ inputs.mode }}" = "warn" ]; then
+          CMD="$CMD --warn"
+        fi
+        
+        # Run evaluation and capture output
+        set +e
+        OUTPUT=$($CMD 2>&1)
+        EXIT_CODE=$?
+        set -e
+        
+        echo "$OUTPUT"
+        
+        # Parse output for metrics
+        VIOLATIONS=$(echo "$OUTPUT" | grep -oP '\d+ violations found' | grep -oP '\d+' || echo "0")
+        PASSED=$(echo "$OUTPUT" | grep -oP 'Passed: \d+' | grep -oP '\d+' || echo "0")
+        FAILED=$(echo "$OUTPUT" | grep -oP 'Failed: \d+' | grep -oP '\d+' || echo "0")
+        
+        # Set outputs
+        echo "violations=$VIOLATIONS" >> $GITHUB_OUTPUT
+        echo "passed=$PASSED" >> $GITHUB_OUTPUT
+        echo "failed=$FAILED" >> $GITHUB_OUTPUT
+        echo "report-path=promptproof-report.${{ inputs.format }}" >> $GITHUB_OUTPUT
+        
+        # Create summary
+        echo "## PromptProof Evaluation Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "$VIOLATIONS" = "0" ]; then
+          echo "✅ **All checks passed!**" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **$VIOLATIONS violations found**" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- Fixtures evaluated: $((PASSED + FAILED))" >> $GITHUB_STEP_SUMMARY
+        echo "- Passed: $PASSED" >> $GITHUB_STEP_SUMMARY
+        echo "- Failed: $FAILED" >> $GITHUB_STEP_SUMMARY
+        
+        echo "::endgroup::"
+        
+        # Exit with original code
+        exit $EXIT_CODE
+
+    - name: Upload Report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: promptproof-report
+        path: |
+          promptproof-report.*
+        retention-days: 30
+
+    - name: Comment on PR
+      if: github.event_name == 'pull_request' && always()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+          
+          // Read the JSON report if it exists
+          let reportData = null;
+          const jsonPath = 'promptproof-report.json';
+          
+          if (fs.existsSync(jsonPath)) {
+            reportData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+          }
+          
+          // Build comment
+          let comment = '## 🔍 PromptProof Evaluation\n\n';
+          
+          if (reportData) {
+            const { violations, total, passed, failed, mode, budgets } = reportData;
+            
+            if (violations.length === 0) {
+              comment += '✅ **All checks passed!**\n\n';
+            } else {
+              comment += `❌ **${violations.length} violation(s) found**\n\n`;
+              
+              // Group violations by check
+              const byCheck = {};
+              violations.forEach(v => {
+                if (!byCheck[v.checkId]) byCheck[v.checkId] = [];
+                byCheck[v.checkId].push(v);
+              });
+              
+              comment += '### Violations\n\n';
+              for (const [checkId, checkViolations] of Object.entries(byCheck)) {
+                comment += `<details>\n<summary><code>${checkId}</code> (${checkViolations.length} violations)</summary>\n\n`;
+                checkViolations.slice(0, 5).forEach(v => {
+                  comment += `- Record \`${v.recordId}\`: ${v.message}\n`;
+                });
+                if (checkViolations.length > 5) {
+                  comment += `- _...and ${checkViolations.length - 5} more_\n`;
+                }
+                comment += '\n</details>\n\n';
+              }
+            }
+            
+            // Add metrics
+            comment += '### Metrics\n\n';
+            comment += `| Metric | Value |\n`;
+            comment += `|--------|-------|\n`;
+            comment += `| Total Fixtures | ${total} |\n`;
+            comment += `| Passed | ${passed} |\n`;
+            comment += `| Failed | ${failed} |\n`;
+            comment += `| Total Cost | $${budgets.cost_usd_total?.toFixed(4) || '0.0000'} |\n`;
+            comment += `| P95 Latency | ${budgets.latency_ms_p95}ms |\n`;
+            comment += `| Mode | ${mode} |\n`;
+            
+          } else {
+            comment += '⚠️ Could not load evaluation results\n';
+          }
+          
+          comment += '\n---\n';
+          comment += '_Generated by [PromptProof](https://github.com/geminimir/promptproof)_';
+          
+          // Find existing comment
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          
+          const botComment = comments.find(comment => 
+            comment.user.type === 'Bot' && 
+            comment.body.includes('PromptProof Evaluation')
+          );
+          
+          if (botComment) {
+            // Update existing comment
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: comment
+            });
+          } else {
+            // Create new comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: comment
+            });
+          }

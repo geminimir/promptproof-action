@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  run-action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run PromptProof Action against example config
+      - uses: ./
+        with:
+          config: example/promptproof.yaml
+          format: json
+          mode: warn
+
