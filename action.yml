@@ -22,6 +22,30 @@ inputs:
     description: 'Node.js version to use'
     required: false
     default: '20'
+  regress:
+    description: 'Compare against baseline snapshot (true|false)'
+    required: false
+    default: ''
+  seed:
+    description: 'Seed for non-deterministic checks'
+    required: false
+    default: ''
+  runs:
+    description: 'Number of runs for non-deterministic checks'
+    required: false
+    default: ''
+  snapshot-on-success:
+    description: 'Create a snapshot after a successful run (true|false)'
+    required: false
+    default: ''
+  snapshot-promote-on-main:
+    description: 'Promote snapshot to baseline when on main branch (true|false)'
+    required: false
+    default: ''
+  snapshot-tag:
+    description: 'Optional snapshot tag to use'
+    required: false
+    default: ''
 
 outputs:
   violations:
@@ -36,6 +60,9 @@ outputs:
   report-path:
     description: 'Path to the generated report'
     value: ${{ steps.eval.outputs.report-path }}
+  exit-code:
+    description: 'Exit code from evaluation'
+    value: ${{ steps.eval.outputs.exit-code }}
 
 runs:
   using: 'composite'
@@ -65,6 +92,18 @@ runs:
         if [ "${{ inputs.mode }}" = "warn" ]; then
           CMD="$CMD --warn"
         fi
+        # Add regress flag if specified
+        if [ "${{ inputs.regress }}" = "true" ]; then
+          CMD="$CMD --regress"
+        fi
+        # Add seed if specified
+        if [ -n "${{ inputs.seed }}" ]; then
+          CMD="$CMD --seed ${{ inputs.seed }}"
+        fi
+        # Add runs if specified
+        if [ -n "${{ inputs.runs }}" ]; then
+          CMD="$CMD --runs ${{ inputs.runs }}"
+        fi
         
         # Run evaluation and capture output
         set +e
@@ -74,16 +113,23 @@ runs:
         
         echo "$OUTPUT"
         
-        # Parse output for metrics
-        VIOLATIONS=$(echo "$OUTPUT" | grep -oP '\d+ violations found' | grep -oP '\d+' || echo "0")
-        PASSED=$(echo "$OUTPUT" | grep -oP 'Passed: \d+' | grep -oP '\d+' || echo "0")
-        FAILED=$(echo "$OUTPUT" | grep -oP 'Failed: \d+' | grep -oP '\d+' || echo "0")
+        # Parse output for metrics (prefer JSON report if present)
+        if [ -f promptproof-report.json ]; then
+          VIOLATIONS=$(node -e "console.log(require('./promptproof-report.json').violations?.length ?? 0)")
+          PASSED=$(node -e "console.log(require('./promptproof-report.json').passed ?? 0)")
+          FAILED=$(node -e "console.log(require('./promptproof-report.json').failed ?? 0)")
+        else
+          VIOLATIONS=$(echo "$OUTPUT" | grep -oP '\\d+ violations found' | grep -oP '\\d+' || echo "0")
+          PASSED=$(echo "$OUTPUT" | grep -oP 'Passed: \\d+' | grep -oP '\\d+' || echo "0")
+          FAILED=$(echo "$OUTPUT" | grep -oP 'Failed: \\d+' | grep -oP '\\d+' || echo "0")
+        fi
         
         # Set outputs
         echo "violations=$VIOLATIONS" >> $GITHUB_OUTPUT
         echo "passed=$PASSED" >> $GITHUB_OUTPUT
         echo "failed=$FAILED" >> $GITHUB_OUTPUT
         echo "report-path=promptproof-report.${{ inputs.format }}" >> $GITHUB_OUTPUT
+        echo "exit-code=$EXIT_CODE" >> $GITHUB_OUTPUT
         
         # Create summary
         echo "## PromptProof Evaluation Results" >> $GITHUB_STEP_SUMMARY

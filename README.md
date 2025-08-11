@@ -12,7 +12,7 @@ Deterministic LLM testing in your CI/CD pipeline. This action evaluates recorded
 - 📊 **Rich reporting** - HTML, JUnit, JSON output formats
 - 💬 **PR comments** - Automatic violation summaries
 - 📈 **Budget tracking** - Cost and latency monitoring
-- 🎯 **Flexible checks** - JSON schema, regex, custom functions
+- 🎯 **Flexible checks** - JSON schema, regex, numeric bounds, string contains/equals, list/set equality, file diff, custom functions
 
 ## Quick Start
 
@@ -38,6 +38,12 @@ jobs:
 | `format` | Output format (console/html/junit/json) | `html` |
 | `mode` | Override mode (fail/warn) | Use config value |
 | `node-version` | Node.js version | `20` |
+| `regress` | Compare against baseline snapshot | `false` |
+| `seed` | Seed for non-deterministic checks |  |
+| `runs` | Number of runs for non-deterministic checks |  |
+| `snapshot-on-success` | Create snapshot after successful run | `false` |
+| `snapshot-promote-on-main` | Promote snapshot to baseline on main | `false` |
+| `snapshot-tag` | Optional snapshot tag |  |
 
 ## Outputs
 
@@ -75,6 +81,7 @@ mode: fail
 - uses: geminimir/promptproof-action@v0
   with:
     config: promptproof.yaml
+    regress: true
 ```
 
 ### Warning Mode (Non-blocking)
@@ -84,6 +91,8 @@ mode: fail
   with:
     config: promptproof.yaml
     mode: warn
+    runs: 3
+    seed: 42
 ```
 
 ### Custom Output Format
@@ -93,6 +102,9 @@ mode: fail
   with:
     config: promptproof.yaml
     format: junit
+    snapshot-on-success: true
+    snapshot-promote-on-main: true
+    snapshot-tag: nightly
 ```
 
 ### With Matrix Testing
