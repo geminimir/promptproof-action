@@ -191,7 +191,7 @@ runs:
           EFFECTIVE_CONFIG="$TMP_CONFIG"
         fi
 
-        # Prepare command
+        # Prepare command (force JSON alongside chosen format)
         CMD="promptproof eval --config $EFFECTIVE_CONFIG --format ${{ inputs.format }} --out $ARTIFACT_NAME"
         
         # Add mode flag if specified to warn/report-only
@@ -229,6 +229,11 @@ runs:
           FAILED=$(node -e "console.log(require('./$JSON_REPORT').failed ?? 0)")
           TOTAL_COST=$(node -e "console.log((require('./$JSON_REPORT').budgets?.cost_usd_total ?? 0).toFixed(4))")
           REGRESSIONS=$(node -e "const r=require('./$JSON_REPORT').regression; console.log(r && r.new_failures ? r.new_failures.length : 0)")
+
+          # If HTML is missing (older CLI), synthesize a simple HTML report from JSON
+          if [ ! -f "$ARTIFACT_NAME.html" ] && [ "${{ inputs.format }}" = "html" ]; then
+            node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync('$JSON_REPORT','utf8'));function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}const rows=(r.violations||[]).slice(0,200).map(v=>`<tr><td>${esc(v.checkId)}</td><td>${esc(v.recordId)}</td><td>${esc(v.message||'')}</td></tr>`).join('');const html=`<!doctype html><meta charset='utf-8'><title>PromptProof Report</title><h1>PromptProof Report</h1><p><b>Total:</b> ${r.total||0} · <b>Passed:</b> ${r.passed||0} · <b>Failed:</b> ${r.failed||0} · <b>Total Cost:</b> $${(r.budgets&&r.budgets.cost_usd_total||0).toFixed(4)}</p><h2>Violations (${(r.violations||[]).length})</h2><table border='1' cellspacing='0' cellpadding='6'><tr><th>Check</th><th>Record</th><th>Message</th></tr>${rows}</table>`;fs.writeFileSync('$ARTIFACT_NAME.html',html);"
+          fi
         else
           VIOLATIONS=$(echo "$OUTPUT" | grep -oP '\\d+ violations found' | grep -oP '\\d+' || echo "0")
           PASSED=$(echo "$OUTPUT" | grep -oP 'Passed: \\d+' | grep -oP '\\d+' || echo "0")
