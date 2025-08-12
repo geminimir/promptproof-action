@@ -99,7 +99,7 @@ runs:
         echo "::group::Checking PromptProof availability"
         node -v
         npm -v
-        npx -y promptproof@latest --version || true
+        (npx -y promptproof-cli@latest --version || npx -y promptproof-cli@beta --version || true)
         echo "::endgroup::"
 
     - name: Run PromptProof Evaluation
@@ -194,7 +194,7 @@ runs:
         fi
 
         # Prepare command (force JSON alongside chosen format)
-        CMD="npx -y promptproof@latest eval --config $EFFECTIVE_CONFIG --format ${{ inputs.format }} --out $ARTIFACT_NAME"
+        CMD="npx -y promptproof-cli@latest eval --config $EFFECTIVE_CONFIG --format ${{ inputs.format }} --out $ARTIFACT_NAME"
         
         # Add mode flag if specified to warn/report-only
         if [ "$MODE_INPUT" = "warn" ]; then CMD="$CMD --warn"; fi
@@ -240,7 +240,7 @@ runs:
           # If JSON wasn't produced (older CLI), run a second pass to emit JSON deterministically
           echo "JSON report missing after first run; invoking JSON reporter"
           set +e
-          OUTPUT_JSON=$(npx -y promptproof@latest eval --config "$EFFECTIVE_CONFIG" --format json --out "$ARTIFACT_NAME" 2>&1)
+          OUTPUT_JSON=$(npx -y promptproof-cli@latest eval --config "$EFFECTIVE_CONFIG" --format json --out "$ARTIFACT_NAME" 2>&1 || npx -y promptproof-cli@beta eval --config "$EFFECTIVE_CONFIG" --format json --out "$ARTIFACT_NAME" 2>&1)
           EXIT_CODE_JSON=$?
           set -e
           echo "$OUTPUT_JSON"
