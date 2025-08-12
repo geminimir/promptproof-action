@@ -248,9 +248,8 @@ runs:
             echo "</body></html>"
           } > "$ARTIFACT_NAME.html"
 
-          cat > "$ARTIFACT_NAME.json" <<'EOF'
-{"total":0,"passed":0,"failed":0,"violations":[],"budgets":{"cost_usd_total":0,"latency_ms_p95":0,"latency_ms_p99":0},"mode":"warn","exitCode":0}
-EOF
+          # Write minimal JSON next to HTML
+          echo '{"total":0,"passed":0,"failed":0,"violations":[],"budgets":{"cost_usd_total":0,"latency_ms_p95":0,"latency_ms_p99":0},"mode":"warn","exitCode":0}' > "$ARTIFACT_NAME.json"
         fi
         
         # Set outputs
