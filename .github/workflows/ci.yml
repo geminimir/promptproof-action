@@ -12,9 +12,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run PromptProof Action against example config
-      - uses: ./
+        uses: ./
         with:
           config: example/promptproof.yaml
           format: json
-          mode: warn
+          mode: report-only
+          report-artifact: promptproof-report
 

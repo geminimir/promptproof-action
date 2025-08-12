@@ -15,7 +15,7 @@ inputs:
     required: false
     default: 'html'
   mode:
-    description: 'Evaluation mode (fail|warn)'
+    description: 'Evaluation mode (gate|report-only|fail|warn). Defaults to policy mode.'
     required: false
     default: ''
   node-version:
@@ -26,12 +26,20 @@ inputs:
     description: 'Compare against baseline snapshot (true|false)'
     required: false
     default: ''
+  baseline-ref:
+    description: 'Git ref to load baseline snapshot from (e.g., origin/main). Implies regress.'
+    required: false
+    default: ''
   seed:
     description: 'Seed for non-deterministic checks'
     required: false
     default: ''
   runs:
     description: 'Number of runs for non-deterministic checks'
+    required: false
+    default: ''
+  max-run-cost:
+    description: 'Maximum total cost for this run in USD (overrides policy budgets.cost_usd_total_max)'
     required: false
     default: ''
   snapshot-on-success:
@@ -46,6 +54,10 @@ inputs:
     description: 'Optional snapshot tag to use'
     required: false
     default: ''
+  report-artifact:
+    description: 'Name of the uploaded report artifact (without extension)'
+    required: false
+    default: 'promptproof-report'
 
 outputs:
   violations:
@@ -63,6 +75,15 @@ outputs:
   exit-code:
     description: 'Exit code from evaluation'
     value: ${{ steps.eval.outputs.exit-code }}
+  total-cost:
+    description: 'Total cost (USD) for the evaluated fixtures'
+    value: ${{ steps.eval.outputs.total-cost }}
+  failed-tests:
+    description: 'Alias for failed (number of fixtures that failed)'
+    value: ${{ steps.eval.outputs.failed-tests }}
+  regressions:
+    description: 'Number of new failures found versus baseline (when regression comparison is enabled)'
+    value: ${{ steps.eval.outputs.regressions }}
 
 runs:
   using: 'composite'
@@ -85,15 +106,102 @@ runs:
       run: |
         echo "::group::Running PromptProof evaluation"
         
-        # Prepare command
-        CMD="promptproof eval --config ${{ inputs.config }} --format ${{ inputs.format }} --out promptproof-report"
-        
-        # Add mode flag if specified
-        if [ "${{ inputs.mode }}" = "warn" ]; then
-          CMD="$CMD --warn"
+        # Determine effective config path (may be rewritten below)
+        EFFECTIVE_CONFIG="${{ inputs.config }}"
+
+        # Prepare artifact base name and output path
+        ARTIFACT_NAME="${{ inputs['report-artifact'] }}"
+        if [ -z "$ARTIFACT_NAME" ]; then
+          ARTIFACT_NAME="promptproof-report"
         fi
+
+        # Handle baseline-ref: fetch baseline snapshot files from the given ref
+        if [ -n "${{ inputs['baseline-ref'] }}" ]; then
+          echo "Fetching baseline snapshot from ref: ${{ inputs['baseline-ref'] }}"
+          mkdir -p .promptproof/baselines
+          # Find all last_green.json files at the ref
+          SUITE_FILES=$(git ls-tree -r --name-only "${{ inputs['baseline-ref'] }}" .promptproof/baselines 2>/dev/null | grep 'last_green.json' || true)
+          if [ -n "$SUITE_FILES" ]; then
+            while read -r FILE; do
+              [ -z "$FILE" ] && continue
+              SUITE=$(echo "$FILE" | awk -F/ '{print $3}')
+              mkdir -p ".promptproof/baselines/$SUITE"
+              git show "${{ inputs['baseline-ref'] }}:$FILE" > ".promptproof/baselines/$SUITE/last_green.json" || true
+              BASELINE_JSON=".promptproof/baselines/$SUITE/last_green.json"
+              if [ -f "$BASELINE_JSON" ]; then
+                MANIFEST_REL=$(node -e "try{const b=require('./$BASELINE_JSON');console.log(b.path||'')}catch(e){console.log('')}")
+                TAG=$(node -e "try{const b=require('./$BASELINE_JSON');console.log(b.tag||'')}catch(e){console.log('')}")
+                if [ -n "$MANIFEST_REL" ]; then
+                  mkdir -p ".promptproof/baselines/$SUITE/$MANIFEST_REL"
+                  git show "${{ inputs['baseline-ref'] }}:.promptproof/baselines/$SUITE/$MANIFEST_REL/manifest.json" > ".promptproof/baselines/$SUITE/$MANIFEST_REL/manifest.json" 2>/dev/null || true
+                fi
+                if [ -n "$TAG" ]; then
+                  mkdir -p ".promptproof/snapshots/$SUITE/$TAG"
+                  git show "${{ inputs['baseline-ref'] }}:.promptproof/snapshots/$SUITE/$TAG/manifest.json" > ".promptproof/snapshots/$SUITE/$TAG/manifest.json" 2>/dev/null || true
+                fi
+              fi
+            done <<< "$SUITE_FILES"
+          else
+            echo "No baseline snapshots found at ref ${{ inputs['baseline-ref'] }}" || true
+          fi
+        fi
+
+        # Possibly rewrite config to enforce mode and/or max-run-cost
+        NEEDS_REWRITE="0"
+        TMP_CONFIG="promptproof.effective.yaml"
+
+        # Normalize mode synonyms and decide if we need to force mode in config
+        MODE_INPUT="${{ inputs.mode }}"
+        if [ "$MODE_INPUT" = "report-only" ]; then MODE_INPUT="warn"; fi
+        if [ "$MODE_INPUT" = "gate" ]; then MODE_INPUT="fail"; fi
+
+        if [ -n "$MODE_INPUT" ]; then
+          NEEDS_REWRITE="1"
+        fi
+
+        if [ -n "${{ inputs['max-run-cost'] }}" ]; then
+          NEEDS_REWRITE="1"
+        fi
+
+        if [ "$NEEDS_REWRITE" = "1" ]; then
+          echo "Rewriting policy config for requested overrides"
+          # Start from original
+          cp "${{ inputs.config }}" "$TMP_CONFIG"
+          # Ensure budgets block exists if we need to write cost gate
+          if [ -n "${{ inputs['max-run-cost'] }}" ]; then
+            if ! grep -Eq '^\s*budgets:\s*$' "$TMP_CONFIG"; then
+              printf '\n' >> "$TMP_CONFIG"
+              echo 'budgets:' >> "$TMP_CONFIG"
+            fi
+            # If the key exists, replace it; otherwise, insert under budgets:
+            if grep -Eq '^\s*cost_usd_total_max:\s*' "$TMP_CONFIG"; then
+              sed -i.bak -E "s/^\s*cost_usd_total_max:\s*.*/  cost_usd_total_max: ${{ inputs['max-run-cost'] }}/" "$TMP_CONFIG"
+            else
+              awk -v val="${{ inputs['max-run-cost'] }}" 'BEGIN{added=0} {print $0; if ($0 ~ /^budgets:\s*$/ && added==0){print "  cost_usd_total_max: " val; added=1}}' "$TMP_CONFIG" > "$TMP_CONFIG.tmp" && mv "$TMP_CONFIG.tmp" "$TMP_CONFIG"
+            fi
+          fi
+          # Force mode if requested (replace existing or append)
+          if [ -n "$MODE_INPUT" ]; then
+            if grep -Eq '^\s*mode:\s*' "$TMP_CONFIG"; then
+              sed -i.bak -E "s/^\s*mode:\s*.*/mode: $MODE_INPUT/" "$TMP_CONFIG"
+            else
+              printf '\nmode: %s\n' "$MODE_INPUT" >> "$TMP_CONFIG"
+            fi
+          fi
+          EFFECTIVE_CONFIG="$TMP_CONFIG"
+        fi
+
+        # Prepare command
+        CMD="promptproof eval --config $EFFECTIVE_CONFIG --format ${{ inputs.format }} --out $ARTIFACT_NAME"
+        
+        # Add mode flag if specified to warn/report-only
+        if [ "$MODE_INPUT" = "warn" ]; then CMD="$CMD --warn"; fi
         # Add regress flag if specified
         if [ "${{ inputs.regress }}" = "true" ]; then
+          CMD="$CMD --regress"
+        fi
+        # If baseline-ref provided, imply regress
+        if [ -n "${{ inputs['baseline-ref'] }}" ]; then
           CMD="$CMD --regress"
         fi
         # Add seed if specified
@@ -114,22 +222,38 @@ runs:
         echo "$OUTPUT"
         
         # Parse output for metrics (prefer JSON report if present)
-        if [ -f promptproof-report.json ]; then
-          VIOLATIONS=$(node -e "console.log(require('./promptproof-report.json').violations?.length ?? 0)")
-          PASSED=$(node -e "console.log(require('./promptproof-report.json').passed ?? 0)")
-          FAILED=$(node -e "console.log(require('./promptproof-report.json').failed ?? 0)")
+        JSON_REPORT="$ARTIFACT_NAME.json"
+        if [ -f "$JSON_REPORT" ]; then
+          VIOLATIONS=$(node -e "console.log(require('./$JSON_REPORT').violations?.length ?? 0)")
+          PASSED=$(node -e "console.log(require('./$JSON_REPORT').passed ?? 0)")
+          FAILED=$(node -e "console.log(require('./$JSON_REPORT').failed ?? 0)")
+          TOTAL_COST=$(node -e "console.log((require('./$JSON_REPORT').budgets?.cost_usd_total ?? 0).toFixed(4))")
+          REGRESSIONS=$(node -e "const r=require('./$JSON_REPORT').regression; console.log(r && r.new_failures ? r.new_failures.length : 0)")
         else
           VIOLATIONS=$(echo "$OUTPUT" | grep -oP '\\d+ violations found' | grep -oP '\\d+' || echo "0")
           PASSED=$(echo "$OUTPUT" | grep -oP 'Passed: \\d+' | grep -oP '\\d+' || echo "0")
           FAILED=$(echo "$OUTPUT" | grep -oP 'Failed: \\d+' | grep -oP '\\d+' || echo "0")
+          TOTAL_COST="0.0000"
+          REGRESSIONS="0"
         fi
         
         # Set outputs
         echo "violations=$VIOLATIONS" >> $GITHUB_OUTPUT
         echo "passed=$PASSED" >> $GITHUB_OUTPUT
         echo "failed=$FAILED" >> $GITHUB_OUTPUT
-        echo "report-path=promptproof-report.${{ inputs.format }}" >> $GITHUB_OUTPUT
+        # Map format to file extension
+        EXT="txt"
+        case "${{ inputs.format }}" in
+          html) EXT="html";;
+          junit) EXT="xml";;
+          json) EXT="json";;
+          console) EXT="txt";;
+        esac
+        echo "report-path=$ARTIFACT_NAME.$EXT" >> $GITHUB_OUTPUT
         echo "exit-code=$EXIT_CODE" >> $GITHUB_OUTPUT
+        echo "total-cost=$TOTAL_COST" >> $GITHUB_OUTPUT
+        echo "failed-tests=$FAILED" >> $GITHUB_OUTPUT
+        echo "regressions=$REGRESSIONS" >> $GITHUB_OUTPUT
         
         # Create summary
         echo "## PromptProof Evaluation Results" >> $GITHUB_STEP_SUMMARY
@@ -145,6 +269,10 @@ runs:
         echo "- Fixtures evaluated: $((PASSED + FAILED))" >> $GITHUB_STEP_SUMMARY
         echo "- Passed: $PASSED" >> $GITHUB_STEP_SUMMARY
         echo "- Failed: $FAILED" >> $GITHUB_STEP_SUMMARY
+        echo "- Total Cost: \$$TOTAL_COST" >> $GITHUB_STEP_SUMMARY
+        if [ "$REGRESSIONS" != "0" ]; then
+          echo "- Regressions: $REGRESSIONS" >> $GITHUB_STEP_SUMMARY
+        fi
         
         echo "::endgroup::"
         
@@ -155,9 +283,9 @@ runs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: promptproof-report
+        name: ${{ inputs['report-artifact'] }}
         path: |
-          promptproof-report.*
+          ${{ inputs['report-artifact'] }}.*
         retention-days: 30
 
     - name: Comment on PR

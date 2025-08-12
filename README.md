@@ -14,6 +14,12 @@ Deterministic LLM testing in your CI/CD pipeline. This action evaluates recorded
 - 📈 **Budget tracking** - Cost and latency monitoring
 - 🎯 **Flexible checks** - JSON schema, regex, numeric bounds, string contains/equals, list/set equality, file diff, custom functions
 
+## See it in action
+
+- Regression fail PR · Cost gate PR · Assertion fail PR
+  
+  [Links to live PRs and GIFs to be inserted after publishing]
+
 ## Quick Start
 
 ```yaml
@@ -28,6 +34,12 @@ jobs:
       - uses: geminimir/promptproof-action@v0
         with:
           config: promptproof.yaml
+          baseline-ref: origin/main
+          runs: 3
+          seed: 1337
+          max-run-cost: 2.50
+          report-artifact: promptproof-report
+          mode: gate
 ```
 
 ## Inputs
@@ -35,12 +47,15 @@ jobs:
 | Input | Description | Default |
 |-------|-------------|---------|
 | `config` | Path to promptproof.yaml | `promptproof.yaml` |
-| `format` | Output format (console/html/junit/json) | `html` |
-| `mode` | Override mode (fail/warn) | Use config value |
+| `baseline-ref` | Git ref to load baseline snapshot from (e.g., `origin/main`) |  |
+| `runs` | Number of runs for flake control |  |
+| `seed` | Seed for flake control determinism |  |
+| `max-run-cost` | Maximum total cost for this run (USD) |  |
+| `report-artifact` | Name of uploaded report artifact | `promptproof-report` |
+| `mode` | `gate` (fail) or `report-only` (warn). Defaults to config. |  |
+| `format` | Output format (`html`|`junit`|`json`|`console`) | `html` |
+| `regress` | Also compare to local baseline | `false` |
 | `node-version` | Node.js version | `20` |
-| `regress` | Compare against baseline snapshot | `false` |
-| `seed` | Seed for non-deterministic checks |  |
-| `runs` | Number of runs for non-deterministic checks |  |
 | `snapshot-on-success` | Create snapshot after successful run | `false` |
 | `snapshot-promote-on-main` | Promote snapshot to baseline on main | `false` |
 | `snapshot-tag` | Optional snapshot tag |  |
@@ -52,6 +67,9 @@ jobs:
 | `violations` | Number of violations found |
 | `passed` | Number of fixtures that passed |
 | `failed` | Number of fixtures that failed |
+| `failed-tests` | Alias for `failed` |
+| `total-cost` | Total cost (USD) of this evaluation |
+| `regressions` | New failures vs baseline (when regression comparison is enabled) |
 | `report-path` | Path to generated report |
 
 ## Configuration
@@ -75,37 +93,75 @@ mode: fail
 
 ## Examples
 
-### Basic Usage
+### Advanced usage (baseline/regress + flake control + cost gate)
 
 ```yaml
 - uses: geminimir/promptproof-action@v0
   with:
     config: promptproof.yaml
-    regress: true
+    baseline-ref: origin/main   # pull last green snapshot from main
+    regress: true               # also compare with any local baseline
+    runs: 5                     # flake control
+    seed: 42                    # deterministic nondeterminism
+    max-run-cost: 1.75          # cost gate for the entire suite
+    format: junit               # emit JUnit XML for test tab
+    mode: gate                  # fail on violations
 ```
 
-### Warning Mode (Non-blocking)
+### Gate on cost via branch rules (report-only mode)
 
 ```yaml
 - uses: geminimir/promptproof-action@v0
   with:
     config: promptproof.yaml
-    mode: warn
-    runs: 3
-    seed: 42
+    max-run-cost: 1.00
+    mode: report-only           # never fail directly
 ```
+
+Then in Branch protection, require the "PromptProof" check so the PR is blocked when the budget is exceeded.
 
 ### Custom Output Format
 
 ```yaml
-- uses: promptproof/action@v0
+- uses: geminimir/promptproof-action@v0
   with:
     config: promptproof.yaml
     format: junit
+    report-artifact: promptproof-report
     snapshot-on-success: true
     snapshot-promote-on-main: true
     snapshot-tag: nightly
 ```
+
+### Zero-network Quickstart (fixtures only)
+
+No API keys required. Use sample fixtures to see a green run:
+
+```yaml
+name: PromptProof
+on: [pull_request]
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: geminimir/promptproof-action@v0
+        with:
+          config: example/promptproof.yaml
+          format: html
+          mode: report-only
+```
+
+This uses recorded fixtures under `example/fixtures/` so CI makes no network calls.
+
+### Make it a required check
+
+1. Settings → Branches → Branch protection rules → Add rule
+2. Branch name pattern = `main`
+3. Enable "Require status checks to pass" → select "PromptProof"
+4. Save
+
+Add 2–3 screenshots when publishing. See Task 3 for full steps.
 
 ### With Matrix Testing
 
