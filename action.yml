@@ -191,13 +191,11 @@ runs:
               awk -v val="${{ inputs['max-run-cost'] }}" 'BEGIN{added=0} {print $0; if ($0 ~ /^budgets:\s*$/ && added==0){print "  cost_usd_total_max: " val; added=1}}' "$TMP_CONFIG" > "$TMP_CONFIG.tmp" && mv "$TMP_CONFIG.tmp" "$TMP_CONFIG"
             fi
           fi
-          # Force mode if requested (replace existing or append)
+          # Force mode if requested (delete all existing then append single key to avoid duplicates)
           if [ -n "$MODE_INPUT" ]; then
-            if grep -Eq '^[[:space:]]*mode:[[:space:]]*' "$TMP_CONFIG"; then
-              sed -i.bak -E "s/^[[:space:]]*mode:[[:space:]]*.*/mode: $MODE_INPUT/" "$TMP_CONFIG"
-            else
-              printf '\nmode: %s\n' "$MODE_INPUT" >> "$TMP_CONFIG"
-            fi
+            # Remove any existing mode lines (safe against duplicates)
+            sed -i.bak -E '/^[[:space:]]*mode:[[:space:]]*/d' "$TMP_CONFIG"
+            printf '\nmode: %s\n' "$MODE_INPUT" >> "$TMP_CONFIG"
           fi
           EFFECTIVE_CONFIG="$TMP_CONFIG"
         fi
