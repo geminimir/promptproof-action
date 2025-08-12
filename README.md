@@ -3,6 +3,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/geminimir/promptproof-action/ci.yml?branch=main)](https://github.com/geminimir/promptproof-action/actions)
 [![Marketplace](https://img.shields.io/badge/Marketplace-PromptProof%20Eval-blue?logo=github)](https://github.com/marketplace/actions/promptproof-eval)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
+[![version](https://img.shields.io/github/v/tag/geminimir/promptproof-action?label=version)](https://github.com/geminimir/promptproof-action/releases)
 
 Deterministic LLM testing in your CI/CD pipeline. This action evaluates recorded LLM outputs against defined contracts and fails PRs when violations are detected.
 
