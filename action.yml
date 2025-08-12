@@ -180,21 +180,21 @@ runs:
           cp "${{ inputs.config }}" "$TMP_CONFIG"
           # Ensure budgets block exists if we need to write cost gate
           if [ -n "${{ inputs['max-run-cost'] }}" ]; then
-            if ! grep -Eq '^\s*budgets:\s*$' "$TMP_CONFIG"; then
+            if ! grep -Eq '^[[:space:]]*budgets:[[:space:]]*$' "$TMP_CONFIG"; then
               printf '\n' >> "$TMP_CONFIG"
               echo 'budgets:' >> "$TMP_CONFIG"
             fi
             # If the key exists, replace it; otherwise, insert under budgets:
-            if grep -Eq '^\s*cost_usd_total_max:\s*' "$TMP_CONFIG"; then
-              sed -i.bak -E "s/^\s*cost_usd_total_max:\s*.*/  cost_usd_total_max: ${{ inputs['max-run-cost'] }}/" "$TMP_CONFIG"
+            if grep -Eq '^[[:space:]]*cost_usd_total_max:[[:space:]]*' "$TMP_CONFIG"; then
+              sed -i.bak -E "s/^[[:space:]]*cost_usd_total_max:[[:space:]]*.*/  cost_usd_total_max: ${{ inputs['max-run-cost'] }}/" "$TMP_CONFIG"
             else
               awk -v val="${{ inputs['max-run-cost'] }}" 'BEGIN{added=0} {print $0; if ($0 ~ /^budgets:\s*$/ && added==0){print "  cost_usd_total_max: " val; added=1}}' "$TMP_CONFIG" > "$TMP_CONFIG.tmp" && mv "$TMP_CONFIG.tmp" "$TMP_CONFIG"
             fi
           fi
           # Force mode if requested (replace existing or append)
           if [ -n "$MODE_INPUT" ]; then
-            if grep -Eq '^\s*mode:\s*' "$TMP_CONFIG"; then
-              sed -i.bak -E "s/^\s*mode:\s*.*/mode: $MODE_INPUT/" "$TMP_CONFIG"
+            if grep -Eq '^[[:space:]]*mode:[[:space:]]*' "$TMP_CONFIG"; then
+              sed -i.bak -E "s/^[[:space:]]*mode:[[:space:]]*.*/mode: $MODE_INPUT/" "$TMP_CONFIG"
             else
               printf '\nmode: %s\n' "$MODE_INPUT" >> "$TMP_CONFIG"
             fi
