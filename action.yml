@@ -335,10 +335,11 @@ runs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ inputs['report-artifact'] }}
+        name: ${{ inputs['report-artifact'] }}-${{ github.job }}-${{ github.run_attempt }}
         path: |
           ${{ inputs['report-artifact'] }}.*
         retention-days: 30
+        overwrite: true
 
     - name: Comment on PR
       if: github.event_name == 'pull_request' && always()
