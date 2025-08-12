@@ -235,6 +235,25 @@ runs:
             node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync('$JSON_REPORT','utf8'));function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}const rows=(r.violations||[]).slice(0,200).map(v=>`<tr><td>${esc(v.checkId)}</td><td>${esc(v.recordId)}</td><td>${esc(v.message||'')}</td></tr>`).join('');const html=`<!doctype html><meta charset='utf-8'><title>PromptProof Report</title><h1>PromptProof Report</h1><p><b>Total:</b> ${r.total||0} · <b>Passed:</b> ${r.passed||0} · <b>Failed:</b> ${r.failed||0} · <b>Total Cost:</b> $${(r.budgets&&r.budgets.cost_usd_total||0).toFixed(4)}</p><h2>Violations (${(r.violations||[]).length})</h2><table border='1' cellspacing='0' cellpadding='6'><tr><th>Check</th><th>Record</th><th>Message</th></tr>${rows}</table>`;fs.writeFileSync('$ARTIFACT_NAME.html',html);"
           fi
         else
+          # If JSON wasn't produced (older CLI), run a second pass to emit JSON deterministically
+          echo "JSON report missing after first run; invoking JSON reporter"
+          set +e
+          OUTPUT_JSON=$(promptproof eval --config "$EFFECTIVE_CONFIG" --format json --out "$ARTIFACT_NAME" 2>&1)
+          EXIT_CODE_JSON=$?
+          set -e
+          echo "$OUTPUT_JSON"
+          
+          if [ -f "$JSON_REPORT" ]; then
+            VIOLATIONS=$(node -e "console.log(require('./$JSON_REPORT').violations?.length ?? 0)")
+            PASSED=$(node -e "console.log(require('./$JSON_REPORT').passed ?? 0)")
+            FAILED=$(node -e "console.log(require('./$JSON_REPORT').failed ?? 0)")
+            TOTAL_COST=$(node -e "console.log((require('./$JSON_REPORT').budgets?.cost_usd_total ?? 0).toFixed(4))")
+            REGRESSIONS=$(node -e "const r=require('./$JSON_REPORT').regression; console.log(r && r.new_failures ? r.new_failures.length : 0)")
+            # Synthesize HTML from JSON if requested format is html and file missing
+            if [ ! -f "$ARTIFACT_NAME.html" ] && [ "${{ inputs.format }}" = "html" ]; then
+              node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync('$JSON_REPORT','utf8'));function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}const rows=(r.violations||[]).slice(0,200).map(v=>`<tr><td>${esc(v.checkId)}</td><td>${esc(v.recordId)}</td><td>${esc(v.message||'')}</td></tr>`).join('');const html=`<!doctype html><meta charset='utf-8'><title>PromptProof Report</title><h1>PromptProof Report</h1><p><b>Total:</b> ${r.total||0} · <b>Passed:</b> ${r.passed||0} · <b>Failed:</b> ${r.failed||0} · <b>Total Cost:</b> $${(r.budgets&&r.budgets.cost_usd_total||0).toFixed(4)}</p><h2>Violations (${(r.violations||[]).length})</h2><table border='1' cellspacing='0' cellpadding='6'><tr><th>Check</th><th>Record</th><th>Message</th></tr>${rows}</table>`;fs.writeFileSync('$ARTIFACT_NAME.html',html);"
+            fi
+          else
           VIOLATIONS=$(echo "$OUTPUT" | grep -oP '\\d+ violations found' | grep -oP '\\d+' || echo "0")
           PASSED=$(echo "$OUTPUT" | grep -oP 'Passed: \\d+' | grep -oP '\\d+' || echo "0")
           FAILED=$(echo "$OUTPUT" | grep -oP 'Failed: \\d+' | grep -oP '\\d+' || echo "0")
@@ -255,6 +274,7 @@ runs:
 
           # Write minimal JSON next to HTML
           echo '{"total":0,"passed":0,"failed":0,"violations":[],"budgets":{"cost_usd_total":0,"latency_ms_p95":0,"latency_ms_p99":0},"mode":"warn","exitCode":0}' > "$ARTIFACT_NAME.json"
+          fi
         fi
         
         # Set outputs
