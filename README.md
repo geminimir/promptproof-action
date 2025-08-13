@@ -2,6 +2,7 @@
 
 [![CI](https://img.shields.io/github/actions/workflow/status/geminimir/promptproof-action/ci.yml?branch=main)](https://github.com/geminimir/promptproof-action/actions)
 [![Marketplace](https://img.shields.io/badge/Marketplace-PromptProof%20Eval-blue?logo=github)](https://github.com/marketplace/actions/promptproof-eval)
+[![Website](https://img.shields.io/badge/Website-promptproof.io-darkgreen)](https://promptproof.io)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
 [![version](https://img.shields.io/github/v/tag/geminimir/promptproof-action?label=version)](https://github.com/geminimir/promptproof-action/releases)
 [![View sample report](https://img.shields.io/badge/Report-Sample-green)](https://geminimir.github.io/promptproof-action/reports/after.html)
