@@ -200,8 +200,8 @@ runs:
           EFFECTIVE_CONFIG="$TMP_CONFIG"
         fi
 
-        # Select CLI package (default to beta if not set by previous step)
-        CLI_PACKAGE="${CLI_PACKAGE:-promptproof-cli@beta}"
+        # Select CLI package (pin to version with new checks)
+        CLI_PACKAGE="${CLI_PACKAGE:-promptproof-cli@0.1.0-beta.3}"
 
         # Prepare command (force JSON alongside chosen format)
         CMD="npx -y -p $CLI_PACKAGE promptproof eval --config $EFFECTIVE_CONFIG --format ${{ inputs.format }} --out $ARTIFACT_NAME"
