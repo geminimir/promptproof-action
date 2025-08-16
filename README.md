@@ -11,11 +11,11 @@ Deterministic LLM testing in your CI/CD pipeline. This action evaluates recorded
 
 ## Features
 
-- 🔒 **Zero network calls** - Tests run on recorded fixtures
-- 📊 **Rich reporting** - HTML, JUnit, JSON output formats
-- 💬 **PR comments** - Automatic violation summaries
-- 📈 **Budget tracking** - Cost and latency monitoring
-- 🎯 **Flexible checks** - JSON schema, regex, numeric bounds, string contains/equals, list/set equality, file diff, custom functions
+- **Zero network calls** - Tests run on recorded fixtures
+- **Rich reporting** - HTML, JUnit, JSON output formats
+- **PR comments** - Automatic violation summaries
+- **Budget tracking** - Cost and latency monitoring
+- **Flexible checks** - JSON schema, regex, numeric bounds, string contains/equals, list/set equality, file diff, custom functions
 
 ## See it in action
 
