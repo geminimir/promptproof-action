@@ -111,6 +111,39 @@ runs:
         fi
         echo "::endgroup::"
 
+    - name: Validate inputs
+      shell: bash
+      run: |
+        set -e
+        ERR=0
+        # Validate format
+        case "${{ inputs.format }}" in
+          console|html|junit|json) ;;
+          *) echo "::error title=Invalid input::format must be one of console|html|junit|json (got '${{ inputs.format }}')"; ERR=1;;
+        esac
+        # Validate mode synonyms
+        case "${{ inputs.mode }}" in
+          ""|gate|report-only|fail|warn) ;;
+          *) echo "::error title=Invalid input::mode must be one of gate|report-only|fail|warn (got '${{ inputs.mode }}')"; ERR=1;;
+        esac
+        # Validate numeric inputs
+        if [ -n "${{ inputs.runs }}" ] && ! echo "${{ inputs.runs }}" | grep -Eq '^[0-9]+$'; then
+          echo "::error title=Invalid input::runs must be an integer (got '${{ inputs.runs }}')"; ERR=1
+        fi
+        if [ -n "${{ inputs.seed }}" ] && ! echo "${{ inputs.seed }}" | grep -Eq '^[0-9]+$'; then
+          echo "::error title=Invalid input::seed must be an integer (got '${{ inputs.seed }}')"; ERR=1
+        fi
+        if [ -n "${{ inputs['max-run-cost'] }}" ] && ! echo "${{ inputs['max-run-cost'] }}" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
+          echo "::error title=Invalid input::max-run-cost must be a number (got '${{ inputs['max-run-cost'] }}')"; ERR=1
+        fi
+        # Validate config path
+        if [ -n "${{ inputs.config }}" ] && [ ! -f "${{ inputs.config }}" ]; then
+          echo "::warning title=Config not found::'${{ inputs.config }}' does not exist at checkout time; ensure the file is created before evaluation."
+        fi
+        if [ "$ERR" -ne 0 ]; then
+          exit 2
+        fi
+
     - name: Run PromptProof Evaluation
       id: eval
       shell: bash
