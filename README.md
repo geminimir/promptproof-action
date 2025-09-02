@@ -73,7 +73,7 @@ jobs:
 | `max-run-cost` | Maximum total cost for this run (USD) |  |
 | `report-artifact` | Name of uploaded report artifact | `promptproof-report` |
 | `mode` | `gate` (fail) or `report-only` (warn). Defaults to config. |  |
-| `format` | Output format (`html`|`junit`|`json`|`console`) | `html` |
+| `format` | Output format (`html`|`junit`|`json`|`console`|`sarif`) | `html` |
 | `regress` | Also compare to local baseline | `false` |
 | `node-version` | Node.js version | `20` |
 | `snapshot-on-success` | Create snapshot after successful run | `false` |
@@ -111,6 +111,16 @@ budgets:
 mode: fail
 ```
 
+## Permissions
+
+When using `format: sarif`, ensure your workflow grants Code Scanning upload permissions:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write
+```
+
 ## Examples
 
 ### Advanced usage (baseline/regress + flake control + cost gate)
@@ -126,6 +136,15 @@ mode: fail
     max-run-cost: 1.75          # cost gate for the entire suite
     format: junit               # emit JUnit XML for test tab
     mode: gate                  # fail on violations
+```
+
+### Emit SARIF for Code Scanning
+
+```yaml
+- uses: geminimir/promptproof-action@v0
+  with:
+    config: promptproof.yaml
+    format: sarif
 ```
 
 ### Gate on cost via branch rules (report-only mode)
@@ -200,6 +219,7 @@ The action automatically comments on PRs with:
 - Violation summary grouped by check type
 - Key metrics (cost, latency, pass/fail counts)
 - Expandable details for each violation type
+- A permalink to the run artifacts
 
 ## Artifacts
 
@@ -207,6 +227,7 @@ Reports are uploaded as artifacts and retained for 30 days:
 - HTML report for human review
 - JSON report for programmatic access
 - JUnit XML for test result visualization
+- SARIF report for Code Scanning
 
 ## License
 
